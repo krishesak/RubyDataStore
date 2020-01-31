@@ -16,6 +16,8 @@ class DataStore
   # Datastore can be initialized using an optional file path. If one is not provided, it  
   # will reliably create itself in a reasonable location on the laptop.
   def initialize(file_name=nil)
+    # Mutex can be used to coordinate access to shared data from multiple concurrent threads.
+    @mutex = Mutex.new
     file_name = file_name.nil? ? "default_storage" : file_name
     # Locate the system root path
     file_path = File.expand_path(file_name)
@@ -56,52 +58,58 @@ class DataStore
   
   # A new key-value pair can be added to the data store using this method. 
   def create(key, value, ttl=0)
-    # Check for the file size never exceeds 1GB
-    if @file.size < (1024*1024*1024)
-      # Ensure the key and value are in valid format.
-      if is_valid_key?(key) && is_valid_json?(value)
-        key_expired?(key)
-        raise DataStore::Error, "Time to live should be in Integer type." unless ttl.is_a?(Integer)
-        # If Create is invoked for an existing key
-        if @content.key?(key)
-          raise DataStore::Error, "Key '#{key}' already exist in the data store.Please try with different name."      
-        else
-          # create and save the data in to the file.
-          time_to_live = ttl.zero? ? ttl : (Time.now + ttl)
-          @content[key] = [value, time_to_live]
-          commit_data
-          p "Successfully created the data"
+    @mutex.synchronize do
+      # Check for the file size never exceeds 1GB
+      if @file.size < (1024*1024*1024)
+        # Ensure the key and value are in valid format.
+        if is_valid_key?(key) && is_valid_json?(value)
+          key_expired?(key)
+          raise DataStore::Error, "Time to live should be in Integer type." unless ttl.is_a?(Integer)
+          # If Create is invoked for an existing key
+          if @content.key?(key)
+            raise DataStore::Error, "Key '#{key}' already exist in the data store.Please try with different name."      
+          else
+            # create and save the data in to the file.
+            time_to_live = ttl.zero? ? ttl : (Time.now + ttl)
+            @content[key] = [value, time_to_live]
+            commit_data
+            p "Successfully created the data"
+          end
         end
+      else
+        raise DataStore::Error, "File size exceeds maximum limit of 1GB"
       end
-    else
-      raise DataStore::Error, "File size exceeds maximum limit of 1GB"
     end
   end
 
   # To read the data from the data store.A read operation can be performed by providing 
   # the key, and receiving the value in response, as a JSON object.
   def read(key)
-    key_expired?(key)
-    # Check whether the key has exist or not.
-    if @content.key?(key)
-      p @content[key][0]
-      p "Successfully read the data"
-    else
-      raise DataStore::Error, "Key '#{key}' does not exist in the data store"
+    @mutex.synchronize do
+      key_expired?(key)
+      # Check whether the key has exist or not.
+      if @content.key?(key)
+        p @content[key][0]
+        p "Successfully read the data"
+      else
+        raise DataStore::Error, "Key '#{key}' does not exist in the data store"
+      end
     end
   end
 
   # To delete the data from the data store.A delete operation can be performed 
   # by providing the key.
   def delete(key)
-    key_expired?(key)
-    # Check whether the key has exist or not.
-    if @content.key?(key)
-      @content.delete(key)
-      commit_data
-      p "Successfully deleted the data"
-    else
-      raise DataStore::Error, "Key '#{key}' does not exist in the data store"
+    @mutex.synchronize do
+      key_expired?(key)
+      # Check whether the key has exist or not.
+      if @content.key?(key)
+        @content.delete(key)
+        commit_data
+        p "Successfully deleted the data"
+      else
+        raise DataStore::Error, "Key '#{key}' does not exist in the data store"
+      end
     end
   end
   
